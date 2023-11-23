@@ -2,9 +2,13 @@ const std = @import("std");
 const DS4 = @import("DS4Z.zig");
 
 pub fn main() !void {
-    var ds4 = DS4.Controller.init("/dev/input/js0") catch {
-        std.debug.print("Device Not Found\n", .{});
+    var ds4 = DS4.Controller.init(0) catch {
+        std.debug.print("\x1B[1;31mDevice Not Found\n", .{});
         return;
     };
-    try ds4.Update();
+
+    while (true) {
+        try ds4.update();
+        //try ds4.PrintState();
+    }
 }

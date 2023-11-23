@@ -1,64 +1,103 @@
 const std = @import("std");
 
-const Button_Mapping = enum(u8) { Cross, Square, Triangle, Circle, Options, Share, PSN, L1, R1, L2, R2, L3, R3, DPad, Touchpad_Click, Touchpad_Touched, Touchpad_X, Touchpad_Y, LStick_X, LStick_Y, RStick_X, RStick_Y };
+const Bindings = enum(u8) {
+    Square,
+    Cross,
+    Circle,
+    Triangle,
+    L1,
+    R1,
 
-const Sensor_Vectors = enum(u8) {
-    Gyro,
-    Accel,
+    share = 8,
+    options = 9,
+    L3 = 10,
+    R3 = 11,
+    PSN = 12,
+
+    Touchpad_Click = 13,
+    Touchpad_Touch = 14,
+
+    Touchpad_Xaxis = 15,
+    Touchpad_Yaxis = 16,
+
+    DPAD_Hori = 17,
+    DPAD_Vert = 18,
+
+    LStick_H = 19,
+    LStick_V = 20,
+    RStick_H = 21,
+    RStick_V = 22,
+
+    L2 = 30,
+    R2 = 31,
 };
 
-const button_map_len = @typeInfo(Button_Mapping).Enum.fields.len;
-const sensor_len = @typeInfo(Button_Mapping).Enum.fields.len;
-pub const Controller = struct {
-    buf: [63]u8, // NOTE: Check Size may be 20, 30 or 63
-    button: [button_map_len]u8,
-    sensor: [sensor_len]@Vector(3, u16), // NOTE: You'll have to convert i16 for Accel Vector
-    file: std.fs.File,
+const colours = enum([]u8) {
+    red = "\x1B[31m",
+    green = "\x1B[32m",
+    yellow = "\x1B[33m",
+    blue = "\x1B[34m",
+    magenta = "\x1B[35m",
+    cyan = "\x1B[36m",
+    white = "\x1B[37m",
+    reset = "\x1B[0m",
+};
 
-    pub fn init(path: []const u8) !Controller {
-        return Controller{ .buf = undefined, .button = [_]u8{0} ** button_map_len, .sensor = [_]@Vector(3, u16){@Vector(3, u16){ 0, 0, 0 }} ** sensor_len, .file = try std.fs.openFileAbsolute(path, .{}) };
+const touchpad = struct { click: u8, touch: u8, coordinates: [2]u8 };
+
+pub const Controller = struct {
+    buttons: [@intFromEnum(Bindings.R2)]u8,
+    in: std.fs.File,
+    data: [63]u8,
+
+    pub fn init(idx: u8) !Controller {
+        var path = "/dev/input/js0".*;
+        path[path.len - 1] = std.fmt.digitToChar(idx, std.fmt.Case.lower);
+        return Controller{
+            .buttons = [_]u8{0} ** @intFromEnum(Bindings.R2),
+            .data = undefined,
+            .in = try std.fs.openFileAbsolute(&path, .{}),
+        };
     }
 
-    pub fn Update(self: *Controller) !void {
-        var bytes_read = try self.file.read(@constCast(&self.buf));
-        if (bytes_read == 0) return;
+    pub fn update(self: *Controller) !void {
+        var bytes_read = try self.in.read(@constCast(&self.data));
+        if (bytes_read == 1) return;
         std.debug.print("Bytes Read: {d}\n", .{bytes_read});
 
-        // TEST:
-        // self.buf[0] should be reportID aka usb
-        self.button[@enumToInt(Button_Mapping.LStick_X)] = self.buf[1];
-        self.button[@enumToInt(Button_Mapping.LStick_Y)] = self.buf[2];
+        switch (self.data[6]) {
+            1 => self.buttons[self.data[7]] = self.data[4], // most buttons
+            2 => { // DPAD
+                switch (self.data[7]) {
+                    6, 7 => { // DPAD Horizontal & Vertical
+                        self.buttons[self.data[7] + 11] = switch (std.mem.bytesAsValue(u16, self.data[4..6]).*) {
+                            0x7FFF => 1, // DPAD_RIGHT & UP
+                            0x8001 => 0xFF, // DPAD_LEFT & DOWN
+                            else => 0,
+                        };
+                    },
+                    3, 4 => { // L2 & R2
+                        //var trig_val: u8 = self.data[5] >> 4;
+                        //self.buttons[self.data[7] + 27] = trig_val;
+                        // NOTES: Shifting by 4 is the same as div by 16
+                        // NOTES:
+                    },
+                    0, 1, 2 => { // L Stick Hori & Vert + R Stick Hori
+                        self.buttons[self.data[7] + 19] = self.data[5] >> 4;
+                    },
+                    5 => { // R Stick Vert
+                        self.buttons[21] = self.data[5] >> 4;
+                    },
 
-        self.button[@enumToInt(Button_Mapping.RStick_X)] = self.buf[3];
-        self.button[@enumToInt(Button_Mapping.RStick_Y)] = self.buf[4];
-
-        // self.button[@enumToInt(Button_Mapping.DPad)] // TODO: Figure out how we're handling teh directions
-        self.button[@enumToInt(Button_Mapping.Square)] = self.buf[5] & (1 << 4); // TODO: Check if we need to move it 3 or 4 bits forward
-        self.button[@enumToInt(Button_Mapping.Cross)] = self.buf[5] & (1 << 5);
-        self.button[@enumToInt(Button_Mapping.Circle)] = self.buf[5] & (1 << 6);
-        self.button[@enumToInt(Button_Mapping.Triangle)] = self.buf[5] & (1 << 7);
-
-        self.button[@enumToInt(Button_Mapping.L1)] = self.buf[6] & 1;
-        self.button[@enumToInt(Button_Mapping.R1)] = self.buf[6] & (1 << 1);
-        // self.button[@enumToInt(Button_Mapping.L2)] = self.buf[6] & (1 << 2);
-        // self.button[@enumToInt(Button_Mapping.R2)] = self.buf[6] & (1 << 3);
-        self.button[@enumToInt(Button_Mapping.Share)] = self.buf[6] & (1 << 4);
-        self.button[@enumToInt(Button_Mapping.Options)] = self.buf[6] & (1 << 5);
-        self.button[@enumToInt(Button_Mapping.L3)] = self.buf[6] & (1 << 6);
-        self.button[@enumToInt(Button_Mapping.R3)] = self.buf[6] & (1 << 7);
-
-        self.button[@enumToInt(Button_Mapping.PSN)] = self.buf[7] & 1;
-        self.button[@enumToInt(Button_Mapping.Touchpad_Click)] = self.buf[7] & 2;
-        // NOTE: The rest of byte would be a counter that's incremented per each report sent
-
-        self.button[@enumToInt(Button_Mapping.L2)] = self.buf[8];
-        self.button[@enumToInt(Button_Mapping.R2)] = self.buf[9];
-        //NOTE: 12 is battery level
-
-        self.sensor[@enumToInt(Sensor_Vectors.Gyro)] = [3]u16{ (self.buf[13] << 8) | self.buf[14], (self.buf[15] << 8) | self.buf[16], (self.buf[17] << 8) | self.buf[18] };
-        self.sensor[@enumToInt(Sensor_Vectors.Accel)] = [3]u16{ (self.buf[19] << 8) | self.buf[20], (self.buf[21] << 8) | self.buf[22], (self.buf[23] << 8) | self.buf[24] };
+                    9, 10 => { // Touchpad X & Y Axises
+                        // self.buttons[self.data[7] + 6] = self.data[5] + (if (self.data[5] < 127) 128 else -128);
+                        self.buttons[@intFromEnum(Bindings.Touchpad_Touch)] = 1;
+                    },
+                    11 => self.buttons[@intFromEnum(Bindings.Touchpad_Touch)] = if (self.data[4] == 1) 0 else 1,
+                    else => std.debug.print("Error No Known Handle: {d}, Data Dump: {s}\n", .{ self.data[7], self.data }),
+                }
+            },
+            else => std.debug.print("Error, Unknown Data Type: {d}, Unknown Data: {s}\n", .{ self.data[6], self.data }),
+        }
     }
-
-    // maybe make a different struct for this type of thing
-    // pub fn UpdateWithBindings(){} // Pass in an array with callbacks for when a button is pressed
 };
