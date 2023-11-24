@@ -9,6 +9,6 @@ pub fn main() !void {
 
     while (true) {
         try ds4.update();
-        //try ds4.PrintState();
+        try ds4.printValues();
     }
 }
