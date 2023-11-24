@@ -40,8 +40,7 @@ pub const Controller = struct {
     in: std.fs.File,
     data: [63]u8,
     updated: bool,
-    active: bool,
-    path: []u8,
+    id: u8,
 
     pub fn init(idx: u8) !Controller {
         var path = "/dev/input/js0".*;
@@ -50,19 +49,13 @@ pub const Controller = struct {
             .buttons = [_]u8{0} ** 21,
             .data = undefined,
             .updated = false,
-            .active = true,
-            .path = path,
+            .id = idx,
             .in = try std.fs.openFileAbsolute(&path, .{}),
         };
     }
 
     pub fn update(self: *Controller) !void {
-        var bytes_read = try self.in.read(@constCast(&self.data)) catch |err| {
-            // TODO: Disconnect
-            // -> set self pointer to null
-            // [or]> set ID as inactive and no longer push data, waiting for the controller to reconnect
-            return;
-        };
+        var bytes_read = try self.in.read(@constCast(&self.data));
         if (bytes_read == 1) {
             self.updated = false;
             return;
