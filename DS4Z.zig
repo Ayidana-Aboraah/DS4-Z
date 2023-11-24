@@ -23,14 +23,8 @@ const Bindings = enum(u8) {
     L2 = 17,
     R2 = 20,
 
-    DPAD_Hori = 18, //6
-    DPAD_Vert = 19, //7
-
-    //    Touchpad_Click = 18,
-    //    Touchpad_Touch = 19,
-    //
-    //    Touchpad_Xaxis = 21,
-    //    Touchpad_Yaxis = 22,
+    DPAD_Hori = 18,
+    DPAD_Vert = 19,
 };
 
 const red = "\x1B[31m";
@@ -46,6 +40,8 @@ pub const Controller = struct {
     in: std.fs.File,
     data: [63]u8,
     updated: bool,
+    active: bool,
+    path: []u8,
 
     pub fn init(idx: u8) !Controller {
         var path = "/dev/input/js0".*;
@@ -54,12 +50,19 @@ pub const Controller = struct {
             .buttons = [_]u8{0} ** 21,
             .data = undefined,
             .updated = false,
+            .active = true,
+            .path = path,
             .in = try std.fs.openFileAbsolute(&path, .{}),
         };
     }
 
     pub fn update(self: *Controller) !void {
-        var bytes_read = try self.in.read(@constCast(&self.data));
+        var bytes_read = try self.in.read(@constCast(&self.data)) catch |err| {
+            // TODO: Disconnect
+            // -> set self pointer to null
+            // [or]> set ID as inactive and no longer push data, waiting for the controller to reconnect
+            return;
+        };
         if (bytes_read == 1) {
             self.updated = false;
             return;
@@ -79,24 +82,16 @@ pub const Controller = struct {
                         };
                     },
                     2, 5 => { // L2 & R2 // 6 & 7 are the inputs that store the [0,1] values of this
-                        var trig_val: u8 = self.data[5] >> 4;
-                        self.buttons[self.data[7] + 15] = trig_val;
-                        // NOTES: Shifting by 4 is the same as div by 16
-                        // NOTES:
+                        self.buttons[self.data[7] + 15] = @as(u8, @bitCast(@divTrunc(@as(i8, @bitCast(self.data[5])), 16) + 8));
+                        //self.buttons[self.data[7] + 15] = self.data[5];
                     },
                     0, 1 => { // L Stick Hori & Vert
-                        self.buttons[self.data[7] + 13] = self.data[5] >> 4;
+                        self.buttons[self.data[7] + 13] = @as(u8, @bitCast(@divTrunc(@as(i8, @bitCast(self.data[5])), 16)));
                     },
                     3, 4 => { // R Stick Hori & Vert
-                        self.buttons[self.data[7] + 12] = self.data[5] >> 4;
+                        self.buttons[self.data[7] + 12] = @as(u8, @bitCast(@divTrunc(@as(i8, @bitCast(self.data[5])), 16)));
                     },
 
-                    // NOTE: WE DON"T SEEM TO USE THESE
-                    // 9, 10 => { // Touchpad X & Y Axises
-                    // self.buttons[self.data[7] + 6] = self.data[5] + (if (self.data[5] < 127) 128 else -128);
-                    //    self.buttons[@intFromEnum(Bindings.Touchpad_Touch)] = 1;
-                    // },
-                    // 11 => self.buttons[@intFromEnum(Bindings.Touchpad_Touch)] = if (self.data[4] == 1) 0 else 1,
                     else => std.debug.print("Error No Known Handle: {d}, Data Dump: {s}\n", .{ self.data[7], self.data }),
                 }
             },
@@ -112,23 +107,25 @@ pub const Controller = struct {
         std.debug.print("{s}Circle{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.Circle)] == pressed) green else red, reset });
         std.debug.print("{s}Share{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.Share)] == pressed) green else red, reset });
         std.debug.print("{s}Options{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.Options)] == pressed) green else red, reset });
+
         std.debug.print("{s}L1{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.L1)] == pressed) green else red, reset });
         std.debug.print("{s}R1{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.R1)] == pressed) green else red, reset });
+
+        std.debug.print("{s}L2:{d}{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.L2)] != 0) green else red, self.buttons[@intFromEnum(Bindings.L2)], reset });
+        std.debug.print("{s}R2:{d}{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.R2)] != 0) green else red, self.buttons[@intFromEnum(Bindings.R2)], reset });
+
         std.debug.print("{s}L3{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.L3)] == pressed) green else red, reset });
         std.debug.print("{s}R3{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.R3)] == pressed) green else red, reset });
-
-        std.debug.print("{s}L2:{d}{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.L2)] == pressed) green else red, self.buttons[@intFromEnum(Bindings.L2)], reset });
-        std.debug.print("{s}R2:{d}{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.R2)] == pressed) green else red, self.buttons[@intFromEnum(Bindings.R2)], reset });
 
         std.debug.print("      {s}up{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.DPAD_Vert)] == 0xFF) green else red, reset });
         std.debug.print("{s}left     {s}", .{ if (self.buttons[@intFromEnum(Bindings.DPAD_Hori)] == 0xFF) green else red, reset });
         std.debug.print("{s}right{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.DPAD_Hori)] == 1) green else red, reset });
         std.debug.print("     {s}down{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.DPAD_Vert)] == 1) green else red, reset });
 
-        std.debug.print("Left Stick X:{s}{d}{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.LStick_H)] != 0) green else red, self.buttons[@intFromEnum(Bindings.LStick_H)], reset });
-        std.debug.print("Left Stick Y:{s}{d}{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.LStick_V)] != 0) green else red, self.buttons[@intFromEnum(Bindings.LStick_V)], reset });
+        std.debug.print("Left Stick X:{s}{d}{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.LStick_H)] != 0) green else red, @as(i8, @bitCast(self.buttons[@intFromEnum(Bindings.LStick_H)])), reset });
+        std.debug.print("Left Stick Y:{s}{d}{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.LStick_V)] != 0) green else red, @as(i8, @bitCast(self.buttons[@intFromEnum(Bindings.LStick_V)])), reset });
 
-        std.debug.print("Right Stick X:{s}{d}{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.RStick_H)] != 0) green else red, self.buttons[@intFromEnum(Bindings.RStick_H)], reset });
-        std.debug.print("Right Stick Y:{s}{d}{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.RStick_V)] != 0) green else red, self.buttons[@intFromEnum(Bindings.RStick_V)], reset });
+        std.debug.print("Right Stick X:{s}{d}{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.RStick_H)] != 0) green else red, @as(i8, @bitCast(self.buttons[@intFromEnum(Bindings.RStick_H)])), reset });
+        std.debug.print("Right Stick Y:{s}{d}{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.RStick_V)] != 0) green else red, @as(i8, @bitCast(self.buttons[@intFromEnum(Bindings.RStick_V)])), reset });
     }
 };
