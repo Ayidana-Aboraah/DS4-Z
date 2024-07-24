@@ -27,8 +27,8 @@ const Bindings = enum(u8) {
     DPAD_Vert = 19,
 };
 
-const red = "\x1B[31m";
 const green = "\x1B[32m";
+const red = "\x1B[31m";
 const reset = "\x1B[0m";
 
 const pressed = 1;
@@ -54,8 +54,12 @@ pub const Controller = struct {
         };
     }
 
+    fn ax(data: u8) u8 {
+        return @divTrunc(@as(i8, @bitCast(data)), 16);
+    }
+
     pub fn update(self: *Controller) !void {
-        var bytes_read = try self.in.read(@constCast(&self.data));
+        const bytes_read = try self.in.read(@constCast(&self.data));
         if (bytes_read == 1) {
             self.updated = false;
             return;
@@ -75,14 +79,14 @@ pub const Controller = struct {
                         };
                     },
                     2, 5 => { // L2 & R2 // 6 & 7 are the inputs that store the [0,1] values of this
-                        self.buttons[self.data[7] + 15] = @as(u8, @bitCast(@divTrunc(@as(i8, @bitCast(self.data[5])), 16) + 8));
+                        self.buttons[self.data[7] + 15] = @as(u8, @bitCast(ax(self.data[5]) + 8));
                         //self.buttons[self.data[7] + 15] = self.data[5];
                     },
                     0, 1 => { // L Stick Hori & Vert
-                        self.buttons[self.data[7] + 13] = @as(u8, @bitCast(@divTrunc(@as(i8, @bitCast(self.data[5])), 16)));
+                        self.buttons[self.data[7] + 13] = @as(u8, @bitCast(ax(self.data[5])));
                     },
                     3, 4 => { // R Stick Hori & Vert
-                        self.buttons[self.data[7] + 12] = @as(u8, @bitCast(@divTrunc(@as(i8, @bitCast(self.data[5])), 16)));
+                        self.buttons[self.data[7] + 12] = @as(u8, @bitCast(ax(self.data[5])));
                     },
 
                     else => std.debug.print("Error No Known Handle: {d}, Data Dump: {s}\n", .{ self.data[7], self.data }),
@@ -92,7 +96,78 @@ pub const Controller = struct {
         }
     }
 
+    // Helper Functions ===
+    inline fn colour(input: u8) [5:0]u8 {
+        return if (input != 0) green else red;
+    }
+    inline fn wrapper(enum_or_tagged_union: anytype) usize {
+        return @intFromEnum(enum_or_tagged_union);
+    }
+    const ief = wrapper;
+    /// ====
     pub fn printValues(self: Controller) !void {
+        const display = undefined;
+        comptime {
+            const buttons = [_][]u8{
+                "Square",
+                "Cross",
+                "Triangle",
+                "Circle",
+                "Share",
+                "Options",
+                "L1",
+                "R1",
+                "L3",
+                "R3",
+            };
+
+            const triggers = [_][]u8{
+                "L2:",
+                "R2:",
+                "Left Stick X:",
+                "Left Stick Y:",
+                "Right Stick X:",
+                "Right Stick Y:",
+            };
+
+            const display_buffer = "";
+
+            for (buttons[0..]) |i|
+                display_buffer = display_buffer ++ "{s}" ++ buttons[i] ++ "{s}\n";
+
+            display_buffer = display_buffer ++ "{s}Up{s}\n{s}Left{s}    {s}Right{s}\n{s}Down{s}\n";
+
+            for (triggers[0..]) |i|
+                display_buffer = display_buffer ++ "{s}" ++ triggers[i] ++ "{d}{s}\n";
+            display = display_buffer;
+        }
+
+        std.debug.print(display, .{
+            colour(self.buttons[ief(Bindings.Square)]),
+            colour(self.buttons[ief(Bindings.Cross)]),
+            colour(self.buttons[ief(Bindings.Triangle)]),
+            colour(self.buttons[ief(Bindings.Circle)]),
+            colour(self.buttons[ief(Bindings.Share)]),
+            colour(self.buttons[ief(Bindings.Options)]),
+            colour(self.buttons[ief(Bindings.L1)]),
+            colour(self.buttons[ief(Bindings.R1)]),
+            colour(self.buttons[ief(Bindings.L3)]),
+            colour(self.buttons[ief(Bindings.R3)]),
+            colour(self.buttons[ief(Bindings.DPAD_Hori)]),
+            colour(self.buttons[ief(Bindings.Left)]),
+            colour(self.buttons[ief(Bindings.Right)]),
+            colour(self.buttons[ief(Bindings.Down)]),
+
+            colour(self.buttons[ief(Bindings.Up)]),
+            colour(self.buttons[ief(Bindings.Down)]),
+            colour(self.buttons[ief(Bindings.Up)]),
+            colour(self.buttons[ief(Bindings.Up)]),
+            colour(self.buttons[ief(Bindings.Up)]),
+            colour(self.buttons[ief(Bindings.Up)]),
+        });
+
+        // std.fmt.format(std.io.getStdOut().writer(), "", .{})
+
         if (!self.updated) return;
         std.debug.print("{s}Square{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.Square)] == pressed) green else red, reset });
         std.debug.print("{s}Cross{s}\n", .{ if (self.buttons[@intFromEnum(Bindings.Cross)] == pressed) green else red, reset });
