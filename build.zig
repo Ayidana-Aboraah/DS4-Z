@@ -17,6 +17,19 @@ pub fn build(b: *std.Build) void {
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
+
+    const sample = b.addExecutable(.{
+        .root_source_file = b.path("tests.zig"),
+        .name = "Samples",
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const run_sample = b.addRunArtifact(sample);
+
+    const run_step = b.step("sample", "Build the Example");
+    run_step.dependOn(&run_sample.step);
+
     const unit_tests = b.addTest(.{
         .root_source_file = b.path("tests.zig"),
         .target = target,
